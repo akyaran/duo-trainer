@@ -287,6 +287,42 @@ textarea {
   font-size: 1.55rem;
 }
 
+.daily-bars {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.daily-bar {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 36px;
+  gap: 10px;
+  align-items: center;
+}
+
+.daily-bar span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.daily-bar strong {
+  text-align: right;
+}
+
+.daily-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e9e1d3;
+}
+
+.daily-track div {
+  min-width: 0;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--accent);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

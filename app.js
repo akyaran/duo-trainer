@@ -283,6 +283,33 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function localDateKey(value) {
+  const date = value ? new Date(value) : new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dailyStudyCounts(days = 7) {
+  const today = todayStart();
+  const counts = new Map();
+  state.sessions.forEach((session) => {
+    const key = localDateKey(session.at);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  return Array.from({ length: days }, (_, index) => {
+    const date = addDays(today, index - days + 1);
+    const key = localDateKey(date);
+    return {
+      key,
+      label: date.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }),
+      count: counts.get(key) || 0
+    };
+  });
+}
+
 function stats() {
   const total = state.cards.length;
   const due = dueCards().length;
@@ -290,7 +317,24 @@ function stats() {
   const correct = state.sessions.filter((session) => session.wasCorrect).length;
   const accuracy = reviewed ? Math.round((correct / reviewed) * 100) : 0;
   const learned = Object.values(state.reviews).filter((review) => review.repetitions > 0).length;
-  return { total, due, reviewed, correct, accuracy, learned };
+  const todayKey = localDateKey();
+  const todaySessions = state.sessions.filter((session) => localDateKey(session.at) === todayKey);
+  const todayReviewed = todaySessions.length;
+  const todayCorrect = todaySessions.filter((session) => session.wasCorrect).length;
+  const todayAccuracy = todayReviewed ? Math.round((todayCorrect / todayReviewed) * 100) : 0;
+  const dailyCounts = dailyStudyCounts(7);
+  return {
+    total,
+    due,
+    reviewed,
+    correct,
+    accuracy,
+    learned,
+    todayReviewed,
+    todayCorrect,
+    todayAccuracy,
+    dailyCounts
+  };
 }
 
 function render() {
@@ -356,6 +400,7 @@ function renderStudy(s) {
         <div class="stats">
           <div class="stat"><span>登録</span><strong>${s.total}</strong></div>
           <div class="stat"><span>復習待ち</span><strong>${s.due}</strong></div>
+          <div class="stat"><span>本日学習</span><strong>${s.todayReviewed}</strong></div>
           <div class="stat"><span>学習済み</span><strong>${s.learned}</strong></div>
           <div class="stat"><span>正答率</span><strong>${s.accuracy}%</strong></div>
         </div>
@@ -491,8 +536,20 @@ function renderProgress(s) {
         <div class="stats">
           <div class="stat"><span>登録例文</span><strong>${s.total}</strong></div>
           <div class="stat"><span>復習待ち</span><strong>${s.due}</strong></div>
+          <div class="stat"><span>本日学習</span><strong>${s.todayReviewed}</strong></div>
+          <div class="stat"><span>本日正答率</span><strong>${s.todayAccuracy}%</strong></div>
           <div class="stat"><span>回答数</span><strong>${s.reviewed}</strong></div>
           <div class="stat"><span>正答率</span><strong>${s.accuracy}%</strong></div>
+        </div>
+        <h3>日別学習数</h3>
+        <div class="daily-bars">
+          ${s.dailyCounts.map((day) => `
+            <div class="daily-bar">
+              <span>${escapeHtml(day.label)}</span>
+              <div class="daily-track"><div style="width: ${Math.min(100, day.count * 10)}%"></div></div>
+              <strong>${day.count}</strong>
+            </div>
+          `).join("")}
         </div>
       </div>
       <div class="panel">
