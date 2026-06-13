@@ -1,0 +1,17 @@
+{
+  "name": "Duo Trainer",
+  "short_name": "Duo",
+  "description": "日本語例文から英文を暗記する端末内保存の学習アプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f4ec",
+  "theme_color": "#145c63",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
