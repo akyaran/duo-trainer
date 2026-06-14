@@ -1,4 +1,4 @@
-const CACHE_NAME = "duo-trainer-v2";
+const CACHE_NAME = "duo-trainer-v3";
 const ASSETS = [
   "./",
   "./index.html",
