@@ -8,11 +8,16 @@
     easy: "Easy"
   };
 
-  function applyHintPenalty(rating, hintsUsed) {
-    if (rating === "again") return rating;
-    if (hintsUsed >= 3) return rating === "easy" || rating === "good" ? "hard" : rating;
-    if (hintsUsed >= 1) return rating === "easy" ? "good" : rating;
-    return rating;
+  function hintAdjustedRating(input, expected, hintsUsed) {
+    if (!normalizeAnswer(input)) return "again";
+    const inputWords = tokenize(input);
+    const expectedWords = tokenize(expected);
+    if (!expectedWords.length) return "good";
+    const matched = expectedWords.filter((word, index) => inputWords[index] === word).length;
+    const adjustedAccuracy = Math.max(0, matched - hintsUsed) / expectedWords.length;
+    if (adjustedAccuracy >= 0.9) return "good";
+    if (adjustedAccuracy >= 0.75) return "hard";
+    return "again";
   }
 
   function hintWords(card) {
@@ -103,7 +108,9 @@
       const input = document.querySelector("#answer").value;
       const graded = gradeAnswer(input, currentCard.en);
       graded.baseRating = graded.suggestedRating;
-      graded.suggestedRating = applyHintPenalty(graded.suggestedRating, window.duoHintCount);
+      if (window.duoHintCount > 0) {
+        graded.suggestedRating = hintAdjustedRating(input, currentCard.en, window.duoHintCount);
+      }
       graded.hintsUsed = window.duoHintCount;
       answerChecked = { input, ...graded };
       window.duoHintCount = 0;
