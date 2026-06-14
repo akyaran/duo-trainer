@@ -45,7 +45,7 @@
       <section class="grid two">
         <div class="panel prompt">
           <div class="prompt-ja">${escapeHtml(card.ja)}</div>
-          <textarea class="answer-input" id="answer" placeholder="英文を入力" ${result ? "disabled" : ""}>${escapeHtml(result?.input || "")}</textarea>
+          <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(result?.input || "")}</textarea>
           <div class="actions">
             <button data-action="check-answer" ${result ? "disabled" : ""}>判定</button>
             <button class="secondary" data-action="show-hint" ${result || window.duoHintCount >= totalHintWords ? "disabled" : ""}>ヒント</button>
