@@ -1,4 +1,5 @@
 (function () {
+  const APP_VERSION = "v7";
   window.duoHintCount = 0;
   window.duoHintIndexes = [];
   window.duoDraftAnswer = "";
@@ -88,10 +89,17 @@
         event.preventDefault();
         checkCurrentAnswer();
       });
+      requestAnimationFrame(() => answer.focus({ preventScroll: true }));
     }
     if (answerChecked) {
       document.querySelector("[data-action='accept-auto-rating']")?.focus();
     }
+  }
+
+  function ensureVersionBadge() {
+    const title = document.querySelector(".brand h1");
+    if (!title || title.querySelector(".version-badge")) return;
+    title.insertAdjacentHTML("beforeend", ` <span class="version-badge">${APP_VERSION}</span>`);
   }
 
   function startVoiceInput() {
@@ -253,6 +261,7 @@
     document.querySelectorAll("[data-tab], [data-rating]").forEach((button) => {
       button.addEventListener("click", resetStudyState, { capture: true });
     });
+    ensureVersionBadge();
     bindStudyInput();
   };
 
@@ -278,6 +287,21 @@
     .hint-box strong {
       color: var(--ink);
       line-height: 1.5;
+    }
+
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      margin-left: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      padding: 2px 8px;
+      font-size: 0.8rem;
+      font-weight: 800;
+      vertical-align: middle;
     }
   `;
   document.head.appendChild(style);
