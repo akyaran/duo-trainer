@@ -1,6 +1,11 @@
 (function () {
   window.duoHintCount = 0;
+  window.duoHintIndexes = [];
+  window.duoDraftAnswer = "";
+  window.duoVoiceStatus = "";
+  window.duoVoiceRecognition = null;
   const originalHandleAction = handleAction;
+  const originalBindEvents = bindEvents;
   const ratingLabels = {
     again: "Again",
     hard: "Hard",
@@ -21,7 +26,116 @@
   }
 
   function hintWords(card) {
-    return tokenize(card.en).slice(0, window.duoHintCount);
+    const expectedWords = tokenize(card.en);
+    const displayWords = card.en.trim().split(/\s+/).filter(Boolean);
+    return window.duoHintIndexes
+      .map((index) => ({ index, word: displayWords[index] || expectedWords[index] }))
+      .filter((hint) => hint.word);
+  }
+
+  function nextHintIndex(input, expected) {
+    const inputWords = tokenize(input);
+    const expectedWords = tokenize(expected);
+    const used = new Set(window.duoHintIndexes);
+    for (let index = 0; index < expectedWords.length; index += 1) {
+      if (used.has(index)) continue;
+      if (inputWords[index] !== expectedWords[index]) return index;
+    }
+    return -1;
+  }
+
+  function resetStudyState() {
+    answerChecked = null;
+    window.duoHintCount = 0;
+    window.duoHintIndexes = [];
+    window.duoDraftAnswer = "";
+    window.duoVoiceStatus = "";
+  }
+
+  function checkCurrentAnswer() {
+    const answer = document.querySelector("#answer");
+    const input = answer?.value || "";
+    const hintsUsed = window.duoHintIndexes.length;
+    const graded = gradeAnswer(input, currentCard.en);
+    graded.baseRating = graded.suggestedRating;
+    if (hintsUsed > 0) {
+      graded.suggestedRating = hintAdjustedRating(input, currentCard.en, hintsUsed);
+    }
+    graded.hintsUsed = hintsUsed;
+    answerChecked = { input, ...graded };
+    window.duoHintCount = 0;
+    window.duoHintIndexes = [];
+    window.duoDraftAnswer = "";
+    window.duoVoiceStatus = "";
+    render();
+  }
+
+  function acceptAutoRating() {
+    updateSchedule(currentCard.id, answerChecked.suggestedRating, answerChecked.correct);
+    currentCard = pickCard();
+    resetStudyState();
+    render();
+  }
+
+  function bindStudyInput() {
+    const answer = document.querySelector("#answer");
+    if (answer && !answer.disabled) {
+      answer.addEventListener("input", () => {
+        window.duoDraftAnswer = answer.value;
+      });
+      answer.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+        event.preventDefault();
+        checkCurrentAnswer();
+      });
+    }
+    if (answerChecked) {
+      document.querySelector("[data-action='accept-auto-rating']")?.focus();
+    }
+  }
+
+  function startVoiceInput() {
+    const answer = document.querySelector("#answer");
+    if (!answer || answer.disabled) return;
+    answer.focus();
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      window.duoVoiceStatus = "この環境ではアプリ内音声入力に未対応です。キーボードのマイクを使ってください。";
+      render();
+      return;
+    }
+    if (window.duoVoiceRecognition) {
+      window.duoVoiceRecognition.stop();
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    window.duoVoiceRecognition = recognition;
+    const baseText = answer.value.trim();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onstart = () => {
+      window.duoVoiceStatus = "聞き取り中...";
+      const status = document.querySelector("#voice-status");
+      if (status) status.textContent = window.duoVoiceStatus;
+    };
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      answer.value = [baseText, transcript].filter(Boolean).join(" ");
+      window.duoDraftAnswer = answer.value;
+    };
+    recognition.onerror = () => {
+      window.duoVoiceStatus = "音声入力を開始できませんでした。キーボードのマイクも使えます。";
+    };
+    recognition.onend = () => {
+      window.duoVoiceRecognition = null;
+      const status = document.querySelector("#voice-status");
+      if (status) status.textContent = window.duoVoiceStatus || "";
+    };
+    recognition.start();
   }
 
   renderStudy = function (s) {
@@ -41,20 +155,23 @@
     const result = answerChecked;
     const hints = hintWords(card);
     const totalHintWords = tokenize(card.en).length;
+    const answerValue = result?.input || window.duoDraftAnswer || "";
     return `
       <section class="grid two">
         <div class="panel prompt">
           <div class="prompt-ja">${escapeHtml(card.ja)}</div>
-          <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(result?.input || "")}</textarea>
+          <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(answerValue)}</textarea>
           <div class="actions">
             <button data-action="check-answer" ${result ? "disabled" : ""}>判定</button>
-            <button class="secondary" data-action="show-hint" ${result || window.duoHintCount >= totalHintWords ? "disabled" : ""}>ヒント</button>
+            <button class="secondary" data-action="voice-input" ${result ? "disabled" : ""}>音声入力</button>
+            <button class="secondary" data-action="show-hint" ${result || window.duoHintIndexes.length >= totalHintWords ? "disabled" : ""}>ヒント</button>
             <button class="secondary" data-action="skip-card">次の問題</button>
           </div>
-          ${window.duoHintCount ? `
+          ${window.duoVoiceStatus ? `<div class="voice-status" id="voice-status">${escapeHtml(window.duoVoiceStatus)}</div>` : ""}
+          ${window.duoHintIndexes.length ? `
             <div class="hint-box">
-              <span>ヒント ${window.duoHintCount}語</span>
-              <strong>${hints.map(escapeHtml).join(" ")}</strong>
+              <span>ヒント ${window.duoHintIndexes.length}回</span>
+              <strong>${hints.map((hint) => `${hint.index + 1}語目: ${escapeHtml(hint.word)}`).join(" / ")}</strong>
             </div>
           ` : ""}
           ${result ? renderResult(card, result) : ""}
@@ -100,45 +217,50 @@
   handleAction = function (event) {
     const action = event.currentTarget.dataset.action;
     if (action === "show-hint") {
-      window.duoHintCount = Math.min(tokenize(currentCard.en).length, window.duoHintCount + 1);
+      const input = document.querySelector("#answer")?.value || "";
+      window.duoDraftAnswer = input;
+      const index = nextHintIndex(input, currentCard.en);
+      if (index >= 0) {
+        window.duoHintIndexes.push(index);
+        window.duoHintCount = window.duoHintIndexes.length;
+      }
       render();
       return;
     }
     if (action === "check-answer") {
-      const input = document.querySelector("#answer").value;
-      const graded = gradeAnswer(input, currentCard.en);
-      graded.baseRating = graded.suggestedRating;
-      if (window.duoHintCount > 0) {
-        graded.suggestedRating = hintAdjustedRating(input, currentCard.en, window.duoHintCount);
-      }
-      graded.hintsUsed = window.duoHintCount;
-      answerChecked = { input, ...graded };
-      window.duoHintCount = 0;
-      render();
+      checkCurrentAnswer();
+      return;
+    }
+    if (action === "voice-input") {
+      startVoiceInput();
       return;
     }
     if (action === "accept-auto-rating") {
-      updateSchedule(currentCard.id, answerChecked.suggestedRating, answerChecked.correct);
-      currentCard = pickCard();
-      answerChecked = null;
-      window.duoHintCount = 0;
-      render();
+      acceptAutoRating();
       return;
     }
     if (action === "skip-card") {
       currentCard = pickCard();
-      answerChecked = null;
-      window.duoHintCount = 0;
+      resetStudyState();
       render();
       return;
     }
     originalHandleAction(event);
   };
 
+  bindEvents = function () {
+    originalBindEvents();
+    document.querySelectorAll("[data-tab], [data-rating]").forEach((button) => {
+      button.addEventListener("click", resetStudyState, { capture: true });
+    });
+    bindStudyInput();
+  };
+
   const style = document.createElement("style");
   style.textContent = `
     .hint-box,
-    .hint-note {
+    .hint-note,
+    .voice-status {
       display: grid;
       gap: 4px;
       border: 1px solid #d7caa9;
