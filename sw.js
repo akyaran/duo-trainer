@@ -1,16 +1,17 @@
-const CACHE_NAME = "duo-trainer-v8";
+const CACHE_NAME = "duo-trainer-v9";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js",
-  "./hint-extension.js",
-  "./manifest.webmanifest",
+  "./styles.css?v=9",
+  "./app.js?v=9",
+  "./hint-extension.js?v=9",
+  "./manifest.webmanifest?v=9",
   "./icon.svg"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -19,6 +20,7 @@ self.addEventListener("activate", (event) => {
       Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
     )
   );
+  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
