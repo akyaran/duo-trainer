@@ -1,5 +1,5 @@
 (function () {
-  const APP_VERSION = "v8";
+  const APP_VERSION = "v9";
   window.duoHintCount = 0;
   window.duoHintIndexes = [];
   window.duoDraftAnswer = "";
