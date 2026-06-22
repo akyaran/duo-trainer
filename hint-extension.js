@@ -1,10 +1,14 @@
 (function () {
-  const APP_VERSION = "v7";
+  const APP_VERSION = "v8";
   window.duoHintCount = 0;
   window.duoHintIndexes = [];
   window.duoDraftAnswer = "";
   window.duoVoiceStatus = "";
   window.duoVoiceRecognition = null;
+  window.duoVoiceShouldRestart = false;
+  window.duoVoiceBaseText = "";
+  window.duoVoiceFinalText = "";
+  window.duoVoiceRestartTimer = null;
   const originalHandleAction = handleAction;
   const originalBindEvents = bindEvents;
   const ratingLabels = {
@@ -51,6 +55,7 @@
     window.duoHintIndexes = [];
     window.duoDraftAnswer = "";
     window.duoVoiceStatus = "";
+    stopVoiceInput("");
   }
 
   function checkCurrentAnswer() {
@@ -102,6 +107,89 @@
     title.insertAdjacentHTML("beforeend", ` <span class="version-badge">${APP_VERSION}</span>`);
   }
 
+  function setVoiceStatus(message) {
+    window.duoVoiceStatus = message;
+    const status = document.querySelector("#voice-status");
+    if (status) status.textContent = message;
+  }
+
+  function setVoiceButtonLabel(label) {
+    const button = document.querySelector("[data-action='voice-input']");
+    if (button) button.textContent = label;
+  }
+
+  function combinedVoiceText(interimText = "") {
+    return [window.duoVoiceBaseText, window.duoVoiceFinalText, interimText]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function stopVoiceInput(message = "音声停止しました") {
+    window.duoVoiceShouldRestart = false;
+    if (window.duoVoiceRestartTimer) {
+      clearTimeout(window.duoVoiceRestartTimer);
+      window.duoVoiceRestartTimer = null;
+    }
+    const recognition = window.duoVoiceRecognition;
+    window.duoVoiceRecognition = null;
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch {}
+    }
+    setVoiceButtonLabel("音声入力");
+    if (message) setVoiceStatus(message);
+  }
+
+  function startRecognitionSession(SpeechRecognition) {
+    const answer = document.querySelector("#answer");
+    if (!answer || answer.disabled) return;
+    const recognition = new SpeechRecognition();
+    window.duoVoiceRecognition = recognition;
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.onstart = () => {
+      setVoiceStatus("聞き取り中...");
+      setVoiceButtonLabel("音声停止");
+    };
+    recognition.onresult = (event) => {
+      let interimText = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const transcript = event.results[index][0]?.transcript || "";
+        if (event.results[index].isFinal) {
+          window.duoVoiceFinalText = [window.duoVoiceFinalText, transcript.trim()]
+            .filter(Boolean)
+            .join(" ");
+        } else {
+          interimText = [interimText, transcript.trim()].filter(Boolean).join(" ");
+        }
+      }
+      answer.value = combinedVoiceText(interimText);
+      window.duoDraftAnswer = answer.value;
+    };
+    recognition.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        stopVoiceInput("音声入力が許可されませんでした。キーボードのマイク入力も使えます。");
+        return;
+      }
+      setVoiceStatus("音声入力が一時停止しました。再開を試みています...");
+    };
+    recognition.onend = () => {
+      window.duoVoiceRecognition = null;
+      if (!window.duoVoiceShouldRestart) {
+        setVoiceButtonLabel("音声入力");
+        return;
+      }
+      setVoiceStatus("無音で一時停止しました。再開中...");
+      window.duoVoiceRestartTimer = setTimeout(() => {
+        if (window.duoVoiceShouldRestart) startRecognitionSession(SpeechRecognition);
+      }, 350);
+    };
+    recognition.start();
+  }
+
   function startVoiceInput() {
     const answer = document.querySelector("#answer");
     if (!answer || answer.disabled) return;
@@ -112,38 +200,17 @@
       render();
       return;
     }
-    if (window.duoVoiceRecognition) {
-      window.duoVoiceRecognition.stop();
+    if (window.duoVoiceShouldRestart || window.duoVoiceRecognition) {
+      stopVoiceInput();
       return;
     }
-    const recognition = new SpeechRecognition();
-    window.duoVoiceRecognition = recognition;
-    const baseText = answer.value.trim();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    recognition.onstart = () => {
-      window.duoVoiceStatus = "聞き取り中...";
-      const status = document.querySelector("#voice-status");
-      if (status) status.textContent = window.duoVoiceStatus;
-    };
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript || "")
-        .join(" ")
-        .trim();
-      answer.value = [baseText, transcript].filter(Boolean).join(" ");
-      window.duoDraftAnswer = answer.value;
-    };
-    recognition.onerror = () => {
-      window.duoVoiceStatus = "音声入力を開始できませんでした。キーボードのマイクも使えます。";
-    };
-    recognition.onend = () => {
-      window.duoVoiceRecognition = null;
-      const status = document.querySelector("#voice-status");
-      if (status) status.textContent = window.duoVoiceStatus || "";
-    };
-    recognition.start();
+    window.duoVoiceShouldRestart = true;
+    window.duoVoiceBaseText = answer.value.trim();
+    window.duoVoiceFinalText = "";
+    setVoiceStatus("聞き取りを開始します...");
+    setVoiceButtonLabel("音声停止");
+    render();
+    startRecognitionSession(SpeechRecognition);
   }
 
   renderStudy = function (s) {
@@ -171,7 +238,7 @@
           <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(answerValue)}</textarea>
           <div class="actions">
             <button data-action="check-answer" ${result ? "disabled" : ""}>判定</button>
-            <button class="secondary" data-action="voice-input" ${result ? "disabled" : ""}>音声入力</button>
+            <button class="secondary" data-action="voice-input" ${result ? "disabled" : ""}>${window.duoVoiceShouldRestart ? "音声停止" : "音声入力"}</button>
             <button class="secondary" data-action="show-hint" ${result || window.duoHintIndexes.length >= totalHintWords ? "disabled" : ""}>ヒント</button>
             <button class="secondary" data-action="skip-card">次の問題</button>
           </div>
