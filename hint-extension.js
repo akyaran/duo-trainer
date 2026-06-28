@@ -1,5 +1,5 @@
 (function () {
-  const APP_VERSION = "v9";
+  const APP_VERSION = "v10";
   window.duoHintCount = 0;
   window.duoHintIndexes = [];
   window.duoDraftAnswer = "";
@@ -233,7 +233,7 @@
     const answerValue = result?.input || window.duoDraftAnswer || "";
     return `
       <section class="grid two">
-        <div class="panel prompt">
+        <div class="panel prompt ${result ? "answered" : ""}">
           <div class="prompt-ja">${escapeHtml(card.ja)}</div>
           <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(answerValue)}</textarea>
           <div class="actions">

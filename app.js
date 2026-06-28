@@ -1,10 +1,20 @@
 const STORAGE_KEY = "duo-trainer-state-v1";
 const VERSION = 1;
+const APP_VERSION = "v10";
 
 const state = loadState();
 let activeTab = "study";
 let currentCard = null;
 let answerChecked = null;
+let hintCount = 0;
+let hintIndexes = [];
+let draftAnswer = "";
+let voiceStatus = "";
+let voiceRecognition = null;
+let voiceShouldRestart = false;
+let voiceBaseText = "";
+let voiceFinalText = "";
+let voiceRestartTimer = null;
 let editingId = null;
 
 const app = document.querySelector("#app");
@@ -69,15 +79,18 @@ function normalizeAnswer(value) {
     .trim();
 }
 
-function gradeAnswer(input, expected) {
+function gradeAnswer(input, expected, hintsUsed = 0) {
   const inputNorm = normalizeAnswer(input);
   const expectedNorm = normalizeAnswer(expected);
-  const suggestedRating = suggestRating(input, expected, inputNorm, expectedNorm);
+  const baseRating = suggestRating(input, expected, inputNorm, expectedNorm);
+  const suggestedRating = suggestRating(input, expected, inputNorm, expectedNorm, hintsUsed);
   return {
     correct: inputNorm === expectedNorm,
     inputNorm,
     expectedNorm,
-    suggestedRating
+    suggestedRating,
+    baseRating,
+    hintsUsed
   };
 }
 
@@ -108,18 +121,174 @@ function similarity(inputNorm, expectedNorm) {
   return 1 - editDistance(inputNorm, expectedNorm) / longest;
 }
 
-function wordAccuracy(input, expected) {
+function wordAccuracy(input, expected, extraMisses = 0) {
   const inputWords = tokenize(input);
   const expectedWords = tokenize(expected);
   if (!expectedWords.length) return 1;
   const matched = expectedWords.filter((word, index) => inputWords[index] === word).length;
-  return matched / expectedWords.length;
+  return Math.max(0, matched - extraMisses) / expectedWords.length;
 }
 
-function suggestRating(input, expected, inputNorm, expectedNorm) {
+function currentHintWords(card) {
+  const expectedWords = tokenize(card.en);
+  const displayWords = card.en.trim().split(/\s+/).filter(Boolean);
+  return hintIndexes
+    .map((index) => ({ index, word: displayWords[index] || expectedWords[index] }))
+    .filter((hint) => hint.word);
+}
+
+function nextHintIndex(input, expected) {
+  const inputWords = tokenize(input);
+  const expectedWords = tokenize(expected);
+  const used = new Set(hintIndexes);
+  for (let index = 0; index < expectedWords.length; index += 1) {
+    if (used.has(index)) continue;
+    if (inputWords[index] !== expectedWords[index]) return index;
+  }
+  return -1;
+}
+
+function resetStudyState() {
+  answerChecked = null;
+  hintCount = 0;
+  hintIndexes = [];
+  draftAnswer = "";
+  voiceStatus = "";
+  stopVoiceInput("");
+}
+
+function checkCurrentAnswer() {
+  const answer = document.querySelector("#answer");
+  const input = answer?.value || "";
+  answerChecked = { input, ...gradeAnswer(input, currentCard.en, hintIndexes.length) };
+  hintCount = 0;
+  hintIndexes = [];
+  draftAnswer = "";
+  voiceStatus = "";
+  render();
+}
+
+function acceptAutoRating() {
+  updateSchedule(currentCard.id, answerChecked.suggestedRating, answerChecked.correct);
+  currentCard = pickCard();
+  resetStudyState();
+  render();
+}
+
+function setVoiceStatus(message) {
+  voiceStatus = message;
+  const status = document.querySelector("#voice-status");
+  if (status) status.textContent = message;
+}
+
+function setVoiceButtonLabel(label) {
+  const button = document.querySelector("[data-action='voice-input']");
+  if (button) button.textContent = label;
+}
+
+function combinedVoiceText(interimText = "") {
+  return [voiceBaseText, voiceFinalText, interimText]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function stopVoiceInput(message = "音声停止しました") {
+  voiceShouldRestart = false;
+  if (voiceRestartTimer) {
+    clearTimeout(voiceRestartTimer);
+    voiceRestartTimer = null;
+  }
+  const recognition = voiceRecognition;
+  voiceRecognition = null;
+  if (recognition) {
+    try {
+      recognition.stop();
+    } catch {}
+  }
+  setVoiceButtonLabel("音声入力");
+  if (message) setVoiceStatus(message);
+}
+
+function startRecognitionSession(SpeechRecognition) {
+  const answer = document.querySelector("#answer");
+  if (!answer || answer.disabled) return;
+  const recognition = new SpeechRecognition();
+  voiceRecognition = recognition;
+  recognition.lang = "en-US";
+  recognition.interimResults = true;
+  recognition.continuous = true;
+  recognition.onstart = () => {
+    setVoiceStatus("聞き取り中...");
+    setVoiceButtonLabel("音声停止");
+  };
+  recognition.onresult = (event) => {
+    let interimText = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const transcript = event.results[index][0]?.transcript || "";
+      if (event.results[index].isFinal) {
+        voiceFinalText = [voiceFinalText, transcript.trim()].filter(Boolean).join(" ");
+      } else {
+        interimText = [interimText, transcript.trim()].filter(Boolean).join(" ");
+      }
+    }
+    answer.value = combinedVoiceText(interimText);
+    draftAnswer = answer.value;
+  };
+  recognition.onerror = (event) => {
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      stopVoiceInput("音声入力が許可されませんでした。キーボードのマイク入力も使えます。");
+      return;
+    }
+    setVoiceStatus("音声入力が一時停止しました。再開を試みています...");
+  };
+  recognition.onend = () => {
+    voiceRecognition = null;
+    if (!voiceShouldRestart) {
+      setVoiceButtonLabel("音声入力");
+      return;
+    }
+    setVoiceStatus("無音で一時停止しました。再開中...");
+    voiceRestartTimer = setTimeout(() => {
+      if (voiceShouldRestart) startRecognitionSession(SpeechRecognition);
+    }, 350);
+  };
+  recognition.start();
+}
+
+function startVoiceInput() {
+  const answer = document.querySelector("#answer");
+  if (!answer || answer.disabled) return;
+  answer.focus();
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    voiceStatus = "この環境ではアプリ内音声入力に未対応です。キーボードのマイクを使ってください。";
+    render();
+    return;
+  }
+  if (voiceShouldRestart || voiceRecognition) {
+    stopVoiceInput();
+    return;
+  }
+  voiceShouldRestart = true;
+  voiceBaseText = answer.value.trim();
+  voiceFinalText = "";
+  setVoiceStatus("聞き取りを開始します...");
+  setVoiceButtonLabel("音声停止");
+  render();
+  startRecognitionSession(SpeechRecognition);
+}
+
+function suggestRating(input, expected, inputNorm, expectedNorm, hintsUsed = 0) {
   const inputTrimmed = input.trim();
   const expectedTrimmed = expected.trim();
   if (!inputNorm) return "again";
+  if (hintsUsed > 0) {
+    const adjustedWords = wordAccuracy(input, expected, hintsUsed);
+    if (adjustedWords >= 0.9) return "good";
+    if (adjustedWords >= 0.75) return "hard";
+    return "again";
+  }
   if (inputTrimmed === expectedTrimmed) return "easy";
   if (inputNorm === expectedNorm) return "good";
 
@@ -206,6 +375,7 @@ function updateSchedule(cardId, rating, wasCorrect) {
     cardId,
     rating,
     wasCorrect,
+    hintsUsed: answerChecked?.hintsUsed || 0,
     at: new Date().toISOString()
   });
   saveState();
@@ -345,7 +515,7 @@ function render() {
         <div class="brand">
           <div class="brand-mark">D</div>
           <div>
-            <h1>Duo Trainer</h1>
+            <h1>Duo Trainer <span class="version-badge">${APP_VERSION}</span></h1>
             <p>日本語から英文を思い出す間隔反復トレーニング</p>
           </div>
         </div>
@@ -384,15 +554,27 @@ function renderStudy(s) {
   if (!currentCard) currentCard = pickCard();
   const card = currentCard;
   const result = answerChecked;
+  const hintWords = card ? currentHintWords(card) : [];
+  const totalHintWords = card ? tokenize(card.en).length : 0;
+  const answerValue = result?.input || draftAnswer || "";
   return `
     <section class="grid two">
-      <div class="panel prompt">
+      <div class="panel prompt ${result ? "answered" : ""}">
         <div class="prompt-ja">${escapeHtml(card.ja)}</div>
-        <textarea class="answer-input" id="answer" placeholder="英文を入力" ${result ? "disabled" : ""}>${escapeHtml(result?.input || "")}</textarea>
+        <textarea class="answer-input" id="answer" placeholder="英文を入力" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" ${result ? "disabled" : ""}>${escapeHtml(answerValue)}</textarea>
         <div class="actions">
           <button data-action="check-answer" ${result ? "disabled" : ""}>判定</button>
+          <button class="secondary" data-action="voice-input" ${result ? "disabled" : ""}>${voiceShouldRestart ? "音声停止" : "音声入力"}</button>
+          <button class="secondary" data-action="show-hint" ${result || hintIndexes.length >= totalHintWords ? "disabled" : ""}>ヒント</button>
           <button class="secondary" data-action="skip-card">次の問題</button>
         </div>
+        ${voiceStatus ? `<div class="voice-status" id="voice-status">${escapeHtml(voiceStatus)}</div>` : ""}
+        ${hintIndexes.length ? `
+          <div class="hint-box">
+            <span>ヒント ${hintIndexes.length}回</span>
+            <strong>${hintWords.map((hint) => `${hint.index + 1}語目: ${escapeHtml(hint.word)}`).join(" / ")}</strong>
+          </div>
+        ` : ""}
         ${result ? renderResult(card, result) : ""}
       </div>
       <aside class="panel">
@@ -421,6 +603,7 @@ function renderResult(card, result) {
     <div class="result ${result.correct ? "ok" : "bad"}">
       <strong>${result.correct ? "正解です" : "もう一歩です"}</strong>
       <div class="auto-rating">自動判定: <strong>${ratingLabels[result.suggestedRating]}</strong></div>
+      ${result.hintsUsed ? `<div class="hint-note">ヒント使用: ${result.hintsUsed}回</div>` : ""}
       <div class="correct-answer">${escapeHtml(card.en)}</div>
       <div class="diff">
         ${diff.map((part) => `<span class="${part.ok ? "" : "miss"}">${escapeHtml(part.word)}</span>`).join("")}
@@ -574,7 +757,7 @@ function bindEvents() {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       activeTab = button.dataset.tab;
-      answerChecked = null;
+      resetStudyState();
       currentCard = null;
       render();
     });
@@ -588,7 +771,7 @@ function bindEvents() {
     button.addEventListener("click", () => {
       updateSchedule(currentCard.id, button.dataset.rating, answerChecked.correct);
       currentCard = pickCard();
-      answerChecked = null;
+      resetStudyState();
       render();
     });
   });
@@ -636,24 +819,48 @@ function bindEvents() {
   });
 
   document.querySelector("#search")?.addEventListener("input", () => render());
+
+  const answer = document.querySelector("#answer");
+  if (answer && !answer.disabled) {
+    answer.addEventListener("input", () => {
+      draftAnswer = answer.value;
+    });
+    answer.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      checkCurrentAnswer();
+    });
+    requestAnimationFrame(() => answer.focus({ preventScroll: true }));
+  }
+  if (answerChecked) {
+    document.querySelector("[data-action='accept-auto-rating']")?.focus();
+  }
 }
 
 function handleAction(event) {
   const action = event.currentTarget.dataset.action;
   if (action === "check-answer") {
-    const input = document.querySelector("#answer").value;
-    answerChecked = { input, ...gradeAnswer(input, currentCard.en) };
+    checkCurrentAnswer();
+  }
+  if (action === "show-hint") {
+    const input = document.querySelector("#answer")?.value || "";
+    draftAnswer = input;
+    const index = nextHintIndex(input, currentCard.en);
+    if (index >= 0) {
+      hintIndexes.push(index);
+      hintCount = hintIndexes.length;
+    }
     render();
   }
+  if (action === "voice-input") {
+    startVoiceInput();
+  }
   if (action === "accept-auto-rating") {
-    updateSchedule(currentCard.id, answerChecked.suggestedRating, answerChecked.correct);
-    currentCard = pickCard();
-    answerChecked = null;
-    render();
+    acceptAutoRating();
   }
   if (action === "skip-card") {
     currentCard = pickCard();
-    answerChecked = null;
+    resetStudyState();
     render();
   }
   if (action === "cancel-edit") {
@@ -690,7 +897,7 @@ function handleAction(event) {
       Object.assign(state, defaultState(), imported);
       saveState();
       currentCard = null;
-      answerChecked = null;
+      resetStudyState();
       alert("JSONを読み込みました。");
       render();
     }).catch(() => alert("JSONを読み込めませんでした。"));

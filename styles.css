@@ -127,6 +127,21 @@ textarea {
   letter-spacing: 0;
 }
 
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
 .brand p,
 .muted {
   margin: 0;
@@ -187,6 +202,10 @@ textarea {
   gap: 16px;
 }
 
+.prompt.answered {
+  gap: 10px;
+}
+
 .prompt-ja {
   min-height: 152px;
   display: flex;
@@ -203,6 +222,16 @@ textarea {
 .answer-input {
   min-height: 132px;
   font-size: 1.08rem;
+}
+
+.prompt.answered .prompt-ja {
+  min-height: 96px;
+  padding: 16px 18px;
+  font-size: clamp(1.1rem, 3vw, 1.55rem);
+}
+
+.prompt.answered .answer-input {
+  min-height: 74px;
 }
 
 .actions {
@@ -227,6 +256,11 @@ textarea {
   border-radius: 8px;
 }
 
+.prompt.answered .result {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
 .result.ok {
   border-color: var(--ok);
 }
@@ -238,6 +272,7 @@ textarea {
 .correct-answer {
   font-size: 1.05rem;
   font-weight: 800;
+  line-height: 1.4;
 }
 
 .auto-rating {
@@ -251,11 +286,41 @@ textarea {
   padding: 4px 10px;
 }
 
+.hint-box,
+.hint-note,
+.voice-status {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #d7caa9;
+  border-radius: 8px;
+  background: #fff8e9;
+  color: #5c4217;
+  padding: 10px 12px;
+}
+
+.hint-box span,
+.hint-note,
+.voice-status {
+  font-size: 0.9rem;
+}
+
+.hint-box strong {
+  color: var(--ink);
+  line-height: 1.5;
+}
+
 .diff {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   line-height: 1.8;
+}
+
+.prompt.answered .diff {
+  max-height: 92px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
 
 .diff span {
@@ -424,12 +489,34 @@ textarea {
   }
 
   .stats,
-  .form-grid,
-  .score-buttons {
+  .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .score-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panel {
     box-shadow: none;
+  }
+
+  .prompt.answered .prompt-ja {
+    min-height: 72px;
+    padding: 12px 14px;
+    font-size: 1.08rem;
+  }
+
+  .prompt.answered .answer-input {
+    min-height: 58px;
+  }
+
+  .prompt.answered .actions button,
+  .prompt.answered .score-buttons button {
+    min-height: 40px;
+  }
+
+  .prompt.answered .correct-answer {
+    font-size: 0.98rem;
   }
 }

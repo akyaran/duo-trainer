@@ -1,11 +1,11 @@
-const CACHE_NAME = "duo-trainer-v9";
+const CACHE_NAME = "duo-trainer-v10";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=9",
-  "./app.js?v=9",
-  "./hint-extension.js?v=9",
-  "./manifest.webmanifest?v=9",
+  "./styles.css?v=10",
+  "./app.js?v=10",
+  "./hint-extension.js?v=10",
+  "./manifest.webmanifest?v=10",
   "./icon.svg"
 ];
 
